@@ -1,0 +1,5 @@
+{
+    "remoteEnv": {
+        "PATH": "$HOME/.cabal/bin:$PATH"
+    }
+}
