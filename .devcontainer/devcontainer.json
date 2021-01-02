@@ -1,5 +1,5 @@
 {
     "remoteEnv": {
-        "PATHH": "$HOME/.cabal/bin"
+        "PATHH": "/home/codespace/.cabal/bin"
     }
 }
