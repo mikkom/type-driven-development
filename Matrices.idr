@@ -1,7 +1,9 @@
 import Data.Vect
 
 createEmpties : Vect n (Vect 0 elem)
-createEmpties = replicate _ []
+createEmpties {n} = replicate n []
+-- createEmpties {n = Z} = []
+-- createEmpties {n = (S k)} = [] :: createEmpties
 
 transposeMat : Vect m (Vect n elem) -> Vect n (Vect m elem)
 transposeMat [] = createEmpties
@@ -22,3 +24,6 @@ multHelper (r :: rs) cs = createRow r cs :: multHelper rs cs
 
 multMatrix : Num a => Vect n (Vect m a) -> Vect m (Vect p a) -> Vect n (Vect p a)
 multMatrix m1 m2 = multHelper m1 (transposeMat m2)
+
+length' : Vect n elem -> Nat
+length' {n} xs = n
