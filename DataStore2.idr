@@ -27,6 +27,7 @@ addToStore : (store : DataStore) -> storeType store -> DataStore
 addToStore (MkData _ _ items) item = MkData _ _ (items ++ [item])
 
 data Command : Schema -> Type where
+  SetSchema : (newSchema : Schema) -> Command schema 
   Add : SchemaType schema -> Command schema
   Get : Integer -> Command schema
   Size : Command schema
@@ -62,7 +63,19 @@ parseBySchema schema input = case parsePrefix schema input of
                                   Just _ => Nothing
                                   Nothing => Nothing
 
+parseSchema : List String -> Maybe Schema
+parseSchema ("String" :: xs) =
+  case xs of
+       [] => Just SString
+       _ => (SString .+.) <$> parseSchema xs
+parseSchema ("Int" :: xs) =
+  case xs of
+       [] => Just SInt
+       _ => (SInt .+.) <$> parseSchema xs
+parseSchema _ = Nothing
+
 parseCommand : (schema : Schema) -> String -> String -> Maybe (Command schema)
+parseCommand schema "schema" input = SetSchema <$> parseSchema (words input)
 parseCommand schema "add" item = Add <$> parseBySchema schema item
 parseCommand _ "get" val with (all isDigit (unpack val))
   | True = Just $ Get (cast val)
@@ -101,6 +114,10 @@ processInput : (store : DataStore) -> String -> Maybe (String, DataStore)
 processInput store input =
   case parse (schema store) input of
        Nothing => Just ("Invalid command\n", store)
+       Just (SetSchema newSchema) =>
+         if size store == 0
+         then Just ("Schema updated\n", MkData newSchema _ [])
+         else Just ("The store is not empty\n", store)
        Just (Add item) =>
          Just ("ID " ++ show (size store) ++ "\n", addToStore store item)
        Just (Get pos) => getEntry pos store
