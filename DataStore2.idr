@@ -34,7 +34,7 @@ data Command : Schema -> Type where
   Get : Integer -> Command schema
   GetAll : Command schema
   Size : Command schema
---  Search : String -> Command schema
+  Search : String -> Command schema
   Quit : Command schema
 
 display : SchemaType schema -> String
@@ -93,7 +93,7 @@ parseCommand _ "get" val with (all isDigit (unpack val))
   | True = Just $ Get (cast val)
   | _ = Nothing
 parseCommand _ "size" "" = Just Size
--- parseCommand _ "search" str = Just $ Search str
+parseCommand _ "search" str = Just $ Search str
 parseCommand _ "quit" "" = Just Quit
 parseCommand _ _ _ = Nothing
 
@@ -107,19 +107,6 @@ getEntry pos store =
        Nothing => "Out of range\n"
        (Just i) => display (index i (items store)) ++ "\n"
 
-mapi : ((a, Nat) -> b) -> Vect n a -> Vect n b
-mapi f xs = go Z f xs
-  where
-    go : Nat -> ((a, Nat) -> b) -> Vect n a -> Vect n b
-    go idx f [] = []
-    go idx f (x :: xs) = f (x, idx) :: go (S idx) f xs
-
-getAll : (store : DataStore) -> String
-getAll store = concat $ mapi go (items store)
-  where
-    go : (storeType store, Nat) -> String
-    go (item, idx) = show idx ++ ": " ++ display item ++ "\n"
-
 indexed : Vect n a -> Vect n (Nat, a)
 indexed = go Z
   where
@@ -127,13 +114,23 @@ indexed = go Z
     go k [] = []
     go k (x :: xs) = (k, x) :: go (S k) xs
 
--- searchItems : String -> DataStore -> Maybe (String, DataStore)
--- searchItems str store = case filter (isInfixOf str . snd) (indexed $ items store) of
---                           (Z ** []) => Just ("No results\n", store)
---                           (n ** results) => Just (concatMap printResult results, store)
---   where
---     printResult : (Nat, String) -> String
---     printResult (i, str) = show i ++ ": " ++ str ++ "\n"
+mapi : ((Nat, a) -> b) -> Vect n a -> Vect n b
+mapi f xs = map f $ indexed xs
+
+getAll : (store : DataStore) -> String
+getAll store = concat $ mapi go (items store)
+  where
+    go : (Nat, storeType store) -> String
+    go (idx, item) = show idx ++ ": " ++ display item ++ "\n"
+
+searchItems : String -> DataStore -> Maybe (String, DataStore)
+searchItems str store =
+  case filter (isInfixOf str . snd) (indexed $ map display (items store)) of
+       (Z ** []) => Just ("No results\n", store)
+       (n ** results) => Just (concatMap printResult results, store)
+  where
+    printResult : (Nat, String) -> String
+    printResult (i, str) = show i ++ ": " ++ str ++ "\n"
 
 processInput : (store : DataStore) -> String -> Maybe (String, DataStore)
 processInput store input =
@@ -148,7 +145,7 @@ processInput store input =
        Just (Get pos) => Just $ (getEntry pos store, store)
        Just GetAll => Just $ (getAll store, store)
        Just Size => Just (show (size store) ++ "\n", store)
---        Just (Search str) => searchItems str store
+       Just (Search str) => searchItems str store
        Just Quit => Nothing
 
 main : IO ()
