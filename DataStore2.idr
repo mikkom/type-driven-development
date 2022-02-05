@@ -7,11 +7,13 @@ infixr 5 .+.
 data Schema
   = SString
   | SInt
+  | SChar
   | (.+.) Schema Schema
 
 SchemaType : Schema -> Type
 SchemaType SString = String
 SchemaType SInt = Int
+SchemaType SChar = Char
 SchemaType (s1 .+. s2) = (SchemaType s1, SchemaType s2)
 
 record DataStore where
@@ -30,6 +32,7 @@ data Command : Schema -> Type where
   SetSchema : (newSchema : Schema) -> Command schema 
   Add : SchemaType schema -> Command schema
   Get : Integer -> Command schema
+  GetAll : Command schema
   Size : Command schema
 --  Search : String -> Command schema
   Quit : Command schema
@@ -37,6 +40,7 @@ data Command : Schema -> Type where
 display : SchemaType schema -> String
 display {schema = SString} item = item
 display {schema = SInt} item = show item
+display {schema = SChar} item = singleton item
 display {schema = (sx .+. sy)} (x, y) = display x ++ ", " ++ display y
 
 parsePrefix : (schema : Schema) -> String -> Maybe (SchemaType schema, String)
@@ -51,11 +55,14 @@ parsePrefix SInt input =
   case span isDigit input of
        ("", rest) => Nothing
        (num, rest) => Just $ (cast num, ltrim rest)
+parsePrefix SChar input =
+  case unpack input of
+       (ch :: rest) => Just $ (ch, ltrim (pack rest))
+       _ => Nothing
 parsePrefix (sx .+. sy) input = do
   (x, rest) <- parsePrefix sx input
   (y, rest') <- parsePrefix sy rest
   pure ((x, y), rest')
-
 
 parseBySchema : (schema : Schema) -> String -> Maybe (SchemaType schema)
 parseBySchema schema input = case parsePrefix schema input of
@@ -72,11 +79,16 @@ parseSchema ("Int" :: xs) =
   case xs of
        [] => Just SInt
        _ => (SInt .+.) <$> parseSchema xs
+parseSchema ("Char" :: xs) =
+  case xs of
+       [] => Just SChar
+       _ => (SChar .+.) <$> parseSchema xs
 parseSchema _ = Nothing
 
 parseCommand : (schema : Schema) -> String -> String -> Maybe (Command schema)
 parseCommand schema "schema" input = SetSchema <$> parseSchema (words input)
 parseCommand schema "add" item = Add <$> parseBySchema schema item
+parseCommand _ "get" "" = Just GetAll
 parseCommand _ "get" val with (all isDigit (unpack val))
   | True = Just $ Get (cast val)
   | _ = Nothing
@@ -89,11 +101,24 @@ parse : (schema: Schema) -> (input: String) -> Maybe (Command schema)
 parse schema input = case span (/= ' ') input of
                           (cmd, args) => parseCommand schema cmd (ltrim args)
 
-getEntry : Integer -> (store : DataStore) -> Maybe (String, DataStore)
+getEntry : Integer -> (store : DataStore) -> String
 getEntry pos store =
   case integerToFin pos (size store) of
-       Nothing => Just ("Out of range\n", store)
-       (Just i) => Just (display (index i (items store)) ++ "\n", store)
+       Nothing => "Out of range\n"
+       (Just i) => display (index i (items store)) ++ "\n"
+
+mapi : ((a, Nat) -> b) -> Vect n a -> Vect n b
+mapi f xs = go Z f xs
+  where
+    go : Nat -> ((a, Nat) -> b) -> Vect n a -> Vect n b
+    go idx f [] = []
+    go idx f (x :: xs) = f (x, idx) :: go (S idx) f xs
+
+getAll : (store : DataStore) -> String
+getAll store = concat $ mapi go (items store)
+  where
+    go : (storeType store, Nat) -> String
+    go (item, idx) = show idx ++ ": " ++ display item ++ "\n"
 
 indexed : Vect n a -> Vect n (Nat, a)
 indexed = go Z
@@ -120,7 +145,8 @@ processInput store input =
          else Just ("The store is not empty\n", store)
        Just (Add item) =>
          Just ("ID " ++ show (size store) ++ "\n", addToStore store item)
-       Just (Get pos) => getEntry pos store
+       Just (Get pos) => Just $ (getEntry pos store, store)
+       Just GetAll => Just $ (getAll store, store)
        Just Size => Just (show (size store) ++ "\n", store)
 --        Just (Search str) => searchItems str store
        Just Quit => Nothing
