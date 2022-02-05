@@ -2,44 +2,85 @@ module DataStore2
 
 import Data.Vect
 
-data DataStore : Type where
-     MkData : (size : Nat) ->
-              (items : Vect size String) ->
-              DataStore
+infixr 5 .+.
 
-size : DataStore -> Nat
-size (MkData size _) = size
+data Schema
+  = SString
+  | SInt
+  | (.+.) Schema Schema
 
-items : (store : DataStore) -> Vect (size store) String
-items (MkData _ xs) = xs
+SchemaType : Schema -> Type
+SchemaType SString = String
+SchemaType SInt = Int
+SchemaType (s1 .+. s2) = (SchemaType s1, SchemaType s2)
 
-addToStore : DataStore -> String -> DataStore
-addToStore (MkData _ items) item = MkData _ (items ++ [item])
+record DataStore where
+       constructor MkData
+       schema : Schema
+       size : Nat
+       items : Vect size (SchemaType schema)
 
-data Command = Add String
-             | Get Integer
-             | Size
-             | Search String
-             | Quit
+storeType : DataStore -> Type
+storeType = SchemaType . schema
 
-parseCommand : String -> String -> Maybe Command
-parseCommand "add" item = Just $ Add item
-parseCommand "get" val with (all isDigit (unpack val))
+addToStore : (store : DataStore) -> storeType store -> DataStore
+addToStore (MkData _ _ items) item = MkData _ _ (items ++ [item])
+
+data Command : Schema -> Type where
+  Add : SchemaType schema -> Command schema
+  Get : Integer -> Command schema
+  Size : Command schema
+--  Search : String -> Command schema
+  Quit : Command schema
+
+display : SchemaType schema -> String
+display {schema = SString} item = item
+display {schema = SInt} item = show item
+display {schema = (sx .+. sy)} (x, y) = display x ++ ", " ++ display y
+
+parsePrefix : (schema : Schema) -> String -> Maybe (SchemaType schema, String)
+parsePrefix SString input = getQuoted (unpack input)
+  where
+    getQuoted ('"' :: xs) =
+      case span (/= '"') xs of
+           (quoted, '"' :: rest) => Just (pack quoted, ltrim (pack rest))
+           _ => Nothing
+    getQuoted _ = Nothing
+parsePrefix SInt input =
+  case span isDigit input of
+       ("", rest) => Nothing
+       (num, rest) => Just $ (cast num, ltrim rest)
+parsePrefix (sx .+. sy) input = do
+  (x, rest) <- parsePrefix sx input
+  (y, rest') <- parsePrefix sy rest
+  pure ((x, y), rest')
+
+
+parseBySchema : (schema : Schema) -> String -> Maybe (SchemaType schema)
+parseBySchema schema input = case parsePrefix schema input of
+                                  Just (res, "") => Just res
+                                  Just _ => Nothing
+                                  Nothing => Nothing
+
+parseCommand : (schema : Schema) -> String -> String -> Maybe (Command schema)
+parseCommand schema "add" item = Add <$> parseBySchema schema item
+parseCommand _ "get" val with (all isDigit (unpack val))
   | True = Just $ Get (cast val)
   | _ = Nothing
-parseCommand "size" "" = Just Size
-parseCommand "search" str = Just $ Search str
-parseCommand "quit" "" = Just Quit
-parseCommand _ _ = Nothing
+parseCommand _ "size" "" = Just Size
+-- parseCommand _ "search" str = Just $ Search str
+parseCommand _ "quit" "" = Just Quit
+parseCommand _ _ _ = Nothing
 
-parse : (input: String) -> Maybe Command
-parse input = case span (/= ' ') input of
-              (cmd, args) => parseCommand cmd (ltrim args)
+parse : (schema: Schema) -> (input: String) -> Maybe (Command schema)
+parse schema input = case span (/= ' ') input of
+                          (cmd, args) => parseCommand schema cmd (ltrim args)
 
-getEntry : Integer -> DataStore -> Maybe (String, DataStore)
-getEntry pos store = case integerToFin pos (size store) of
-                       Nothing => Just ("Out of range\n", store)
-                       (Just i) => Just (index i (items store) ++ "\n", store)
+getEntry : Integer -> (store : DataStore) -> Maybe (String, DataStore)
+getEntry pos store =
+  case integerToFin pos (size store) of
+       Nothing => Just ("Out of range\n", store)
+       (Just i) => Just (display (index i (items store)) ++ "\n", store)
 
 indexed : Vect n a -> Vect n (Nat, a)
 indexed = go Z
@@ -48,23 +89,24 @@ indexed = go Z
     go k [] = []
     go k (x :: xs) = (k, x) :: go (S k) xs
 
-searchItems : String -> DataStore -> Maybe (String, DataStore)
-searchItems str store = case filter (isInfixOf str . snd) (indexed $ items store) of
-                          (Z ** []) => Just ("No results\n", store)
-                          (n ** results) => Just (concatMap printResult results, store)
-  where
-    printResult : (Nat, String) -> String
-    printResult (i, str) = show i ++ ": " ++ str ++ "\n"
+-- searchItems : String -> DataStore -> Maybe (String, DataStore)
+-- searchItems str store = case filter (isInfixOf str . snd) (indexed $ items store) of
+--                           (Z ** []) => Just ("No results\n", store)
+--                           (n ** results) => Just (concatMap printResult results, store)
+--   where
+--     printResult : (Nat, String) -> String
+--     printResult (i, str) = show i ++ ": " ++ str ++ "\n"
 
-processInput : DataStore -> String -> Maybe (String, DataStore)
-processInput store input = case parse input of
-                           Nothing => Just ("Invalid command\n", store)
-                           Just (Add item) =>
-                             Just ("ID " ++ show (size store) ++ "\n", addToStore store item)
-                           Just (Get pos) => getEntry pos store
-                           Just Size => Just (show (size store) ++ "\n", store)
-                           Just (Search str) => searchItems str store
-                           Just Quit => Nothing
+processInput : (store : DataStore) -> String -> Maybe (String, DataStore)
+processInput store input =
+  case parse (schema store) input of
+       Nothing => Just ("Invalid command\n", store)
+       Just (Add item) =>
+         Just ("ID " ++ show (size store) ++ "\n", addToStore store item)
+       Just (Get pos) => getEntry pos store
+       Just Size => Just (show (size store) ++ "\n", store)
+--        Just (Search str) => searchItems str store
+       Just Quit => Nothing
 
 main : IO ()
-main = replWith (MkData _ []) "Command: " processInput
+main = replWith (MkData (SString .+. SString .+. SInt) _ []) "Command: " processInput
