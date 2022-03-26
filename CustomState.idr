@@ -19,18 +19,21 @@ data State : (stateType : Type) -> Type -> Type where
      Pure : ty -> State stateType ty
      Bind : State stateType a -> (a -> State stateType b) -> State stateType b
 
-Functor (State stateType) where
-  map f state = Bind state (\x => Pure (f x))
+mutual
+  Functor (State stateType) where
+    map f state = do
+      val <- state
+      pure (f val)
 
-Applicative (State stateType) where
-  pure x = Pure x
-  mf <*> mx = Bind mf (\f =>
-              Bind mx (\x =>
-              Pure (f x)))
+  Applicative (State stateType) where
+    pure x = Pure x
+    mf <*> mx = do
+      f <- mf
+      x <- mx
+      Pure (f x)
 
-Monad (State stateType) where
-  (>>=) = Bind
-
+  Monad (State stateType) where
+    (>>=) = Bind
 
 get : State stateType stateType
 get = Get
@@ -60,3 +63,15 @@ runState (Bind cmd prog) st =
 
 treeLabel : Tree a -> Tree (Integer, a)
 treeLabel tree = fst $ runState (treeLabelWith tree) [1..]
+
+addIfPositive : Integer -> State Integer Bool
+addIfPositive val = do
+  when (val > 0) $ do
+    current <- get
+    put (current + val)
+  pure (val > 0)
+
+addPositives : List Integer -> State Integer Nat
+addPositives vals = do
+  added <- traverse addIfPositive vals
+  pure $ length (filter id added)
