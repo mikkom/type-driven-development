@@ -27,6 +27,22 @@ namespace CommandDo
   (>>=) : Command a -> (a -> Command b) -> Command b
   (>>=) = Bind
 
+mutual
+  Functor Command where
+    map f cmd = do
+      x <- cmd
+      pure (f x)
+
+  Applicative Command where
+    pure = Pure
+    mf <*> mx = do
+      f <- mf
+      x <- mx
+      pure (f x)
+  
+  Monad Command where
+    (>>=) = Bind
+
 data ConsoleIO : Type -> Type where
      Quit : a -> ConsoleIO a
      Do : Command a -> (a -> Inf (ConsoleIO b)) -> ConsoleIO b
