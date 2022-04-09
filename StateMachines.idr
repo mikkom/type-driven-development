@@ -61,27 +61,32 @@ data Input
   | CHANGE
   | REFILL Nat
 
-data MachineCmd : Type -> VendState -> VendState -> Type where
-     InsertCoin : MachineCmd () (pounds, chocs) (S pounds, chocs)
-     Vend : MachineCmd () (S pounds, S chocs) (pounds, chocs)
-     GetCoins : MachineCmd () (pounds, chocs) (Z, chocs)
-     Refill : (bars : Nat) -> MachineCmd () (Z, chocs) (Z, bars + chocs)
+data CoinResult = Inserted | Rejected
 
-     Display : String -> MachineCmd () state state
-     GetInput : MachineCmd (Maybe Input) state state
+data MachineCmd : (ty : Type) -> VendState -> (ty -> VendState) -> Type where
+     InsertCoin : MachineCmd CoinResult (pounds, chocs)
+                  (\result => case result of
+                                   Inserted => (S pounds, chocs)
+                                   Rejected => (pounds, chocs))
+     Vend : MachineCmd () (S pounds, S chocs) (const (pounds, chocs))
+     GetCoins : MachineCmd () (pounds, chocs) (const (Z, chocs))
+     Refill : (bars : Nat) -> MachineCmd () (Z, chocs) (const (Z, bars + chocs))
 
-     Pure : ty -> MachineCmd ty state state
-     (>>=) : MachineCmd a state1 state2 ->
-             (a -> MachineCmd b state2 state3) ->
-             MachineCmd b state1 state3
+     Display : String -> MachineCmd () state (const state)
+     GetInput : MachineCmd (Maybe Input) state (const state)
+
+     Pure : (res : ty) -> MachineCmd ty (f res) f
+     (>>=) : MachineCmd a state1 f ->
+             ((res : a) -> MachineCmd b (f res) f') ->
+             MachineCmd b state1 f'
 
 data MachineIO : VendState -> Type where
-     Do : MachineCmd a state1 state2 ->
-          (a -> Inf (MachineIO state2)) -> MachineIO state1
+     Do : MachineCmd a state f ->
+          ((res : a) -> Inf (MachineIO (f res))) -> MachineIO state
 
 namespace MachineDo
-  (>>=) : MachineCmd a state1 state2 ->
-          (a -> Inf (MachineIO state2)) -> MachineIO state1
+  (>>=) : MachineCmd a state f ->
+          ((res : a) -> Inf (MachineIO (f res))) -> MachineIO state
   (>>=) = Do
 
 mutual
@@ -112,8 +117,12 @@ mutual
       machineLoop
     case x of
       COIN => do
-        InsertCoin
-        machineLoop
+        res <- InsertCoin
+        case res of
+          Inserted => machineLoop
+          Rejected => do
+            Display "Coin rejected"
+            machineLoop
       VEND => vend
       CHANGE => do
         GetCoins
