@@ -117,8 +117,7 @@ mutual
       machineLoop
     case x of
       COIN => do
-        res <- InsertCoin
-        case res of
+        case !InsertCoin of
           Inserted => machineLoop
           Rejected => do
             Display "Coin rejected"
