@@ -16,14 +16,6 @@ data Message = Add Nat Nat
 AdderType : Message -> Type
 AdderType (Add x y) = Nat
 
-data ListAction : Type where
-  Length : List a -> ListAction
-  Append : List a -> List a -> ListAction
-
-ListType : ListAction -> Type
-ListType (Length xs) = Nat
-ListType (Append {a} xs ys) = List a
-
 public export
 data Process : (iface : reqType -> Type) ->
                Type ->
