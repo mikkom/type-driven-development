@@ -6,28 +6,48 @@ import System.Concurrency.Channels
 
 data ProcState = NoRequest | Sent | Complete
 
-data MessagePID = MkMessage PID
+data MessagePID : (iface : reqType -> Type) -> Type where
+  MkMessage : PID -> MessagePID iface
 
 data Message = Add Nat Nat
 
-data Process : Type ->
+AdderType : Message -> Type
+AdderType (Add x y) = Nat
+
+data ListAction : Type where
+  Length : List a -> ListAction
+  Append : List a -> List a -> ListAction
+
+ListType : ListAction -> Type
+ListType (Length xs) = Nat
+ListType (Append {a} xs ys) = List a
+
+data Process : (iface : reqType -> Type) ->
+               Type ->
                (inState : ProcState) ->
                (outState : ProcState) ->
                Type where
-  Request : MessagePID -> Message -> Process Nat st st
-  Respond : ((msg : Message) -> Process Nat NoRequest NoRequest) ->
-            Process (Maybe Message) st Sent
-  Spawn : Process () NoRequest Complete -> Process (Maybe MessagePID) st st
-  Loop : Inf (Process a NoRequest Complete) -> Process a Sent Complete
-  Action : IO a -> Process a st st
-  Pure : a -> Process a st st
-  (>>=) : Process a st1 st2 -> (a -> Process b st2 st3) -> Process b st1 st3
+  Request : MessagePID iSvc ->
+            (msg : svcReqType) ->
+            Process iface (iSvc msg) st st
+  Respond : ((msg : reqType) ->
+              Process iface (iface msg) NoRequest NoRequest) ->
+            Process iface (Maybe reqType) st Sent
+  Spawn : Process iSvc () NoRequest Complete ->
+          Process iface (Maybe (MessagePID iSvc)) st st
+  Loop : Inf (Process iface a NoRequest Complete) ->
+         Process iface a Sent Complete
+  Action : IO a -> Process iface a st st
+  Pure : a -> Process iface a st st
+  (>>=) : Process iface a st1 st2 ->
+          (a -> Process iface b st2 st3) ->
+          Process iface b st1 st3
 
 data Fuel = Dry | More (Lazy Fuel)
 
 data Option a = None | Some a
 
-run : Fuel -> Process t st st' -> IO (Option t)
+run : Fuel -> Process iface t st st' -> IO (Option t)
 run Dry _ = pure None
 run fuel (Action act) = do
   res <- act
@@ -41,20 +61,20 @@ run fuel (Spawn proc) = do
   Just pid <- spawn (run fuel proc *> pure ())
     | Nothing => pure None
   pure (Some $ Just $ MkMessage pid)
-run fuel (Request (MkMessage pid) msg) = do
+run fuel (Request {iSvc} (MkMessage pid) msg) = do
   Just chan <- connect pid
     | _ => pure None 
   ok <- unsafeSend chan msg
   if ok then do
-    Just val <- unsafeRecv Nat chan
+    Just val <- unsafeRecv (iSvc msg) chan
       | _ => pure None
     pure (Some val)
   else
     pure None
-run fuel (Respond f) = do
+run fuel (Respond {reqType} f) = do
   Just chan <- listen 1
     | Nothing => pure (Some Nothing)
-  Just msg <- unsafeRecv Message chan
+  Just msg <- unsafeRecv reqType chan
     | Nothing => pure (Some Nothing)
   Some res <- run fuel (f msg)
     | None => pure None
@@ -62,13 +82,16 @@ run fuel (Respond f) = do
   pure (Some (Just msg))
 run (More fuel) (Loop act) = run fuel act
 
-Service : Type -> Type
-Service a = Process a NoRequest Complete
+Service : (iface: reqType -> Type) -> Type -> Type
+Service iface a = Process iface a NoRequest Complete
+
+NoRecv : Void -> Type
+NoRecv = const Void
 
 Client : Type -> Type
-Client a = Process a NoRequest NoRequest
+Client a = Process NoRecv a NoRequest NoRequest
 
-procAdder : Service ()
+procAdder : Service AdderType ()
 procAdder = do
   Respond (\msg => case msg of
     Add x y => Pure (x + y))
@@ -86,7 +109,7 @@ forever : Fuel
 forever = More forever
 
 partial
-runProc : Process () st st' -> IO ()
+runProc : Process iface () inState outState -> IO ()
 runProc proc = do
   run forever proc
   pure ()
