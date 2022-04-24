@@ -1,11 +1,13 @@
-module Concurrency
+module ProcessLib
 
 import System.Concurrency.Channels
 
 %default total
 
+public export
 data ProcState = NoRequest | Sent | Complete
 
+export
 data MessagePID : (iface : reqType -> Type) -> Type where
   MkMessage : PID -> MessagePID iface
 
@@ -22,6 +24,7 @@ ListType : ListAction -> Type
 ListType (Length xs) = Nat
 ListType (Append {a} xs ys) = List a
 
+public export
 data Process : (iface : reqType -> Type) ->
                Type ->
                (inState : ProcState) ->
@@ -43,10 +46,13 @@ data Process : (iface : reqType -> Type) ->
           (a -> Process iface b st2 st3) ->
           Process iface b st1 st3
 
+public export
 data Fuel = Dry | More (Lazy Fuel)
 
+public export
 data Option a = None | Some a
 
+export
 run : Fuel -> Process iface t st st' -> IO (Option t)
 run Dry _ = pure None
 run fuel (Action act) = do
@@ -82,12 +88,15 @@ run fuel (Respond {reqType} f) = do
   pure (Some (Just msg))
 run (More fuel) (Loop act) = run fuel act
 
+public export
 Service : (iface: reqType -> Type) -> Type -> Type
 Service iface a = Process iface a NoRequest Complete
 
+public export
 NoRecv : Void -> Type
 NoRecv = const Void
 
+public export
 Client : Type -> Type
 Client a = Process NoRecv a NoRequest NoRequest
 
@@ -104,11 +113,11 @@ procMain = do
   answer <- Request adderId (Add 2 3)
   Action (putStrLn $ "The answer is " ++ show answer)
 
-partial
+export partial
 forever : Fuel
 forever = More forever
 
-partial
+export partial
 runProc : Process iface () inState outState -> IO ()
 runProc proc = do
   run forever proc
